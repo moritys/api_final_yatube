@@ -1,15 +1,23 @@
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
 
-from posts.models import Comment, Group, Follow, Post, User
+from posts.models import Comment, Follow, Group, Post, User
 
-from rest_framework import permissions, viewsets
+from rest_framework import mixins, permissions, viewsets
+from rest_framework.filters import SearchFilter
 from rest_framework.pagination import LimitOffsetPagination
 
 from .permissions import IsOwnerOrReadOnly, ReadOnly
 from .serializers import (
-    CommentSerializer, GroupSerializer, FollowSerializer, PostSerializer
+    CommentSerializer, FollowSerializer, GroupSerializer, PostSerializer
 )
+
+
+class CreateListViewSet(
+    mixins.CreateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet
+):
+    """Mixin for GET and POST requests."""
+    pass
 
 
 class PostViewSet(viewsets.ModelViewSet):
@@ -42,6 +50,9 @@ class PostViewSet(viewsets.ModelViewSet):
 class GroupViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
+    permission_classes = (
+        permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly,
+    )
 
 
 class CommentViewSet(viewsets.ModelViewSet):
@@ -76,10 +87,16 @@ class CommentViewSet(viewsets.ModelViewSet):
         super(CommentViewSet, self).perform_destroy(serializer)
 
 
-class FollowViewSet(viewsets.ModelViewSet):
+class FollowViewSet(CreateListViewSet):
+    queryset = Follow.objects.all()
     serializer_class = FollowSerializer
     permission_classes = (permissions.IsAuthenticated,)
+    filter_backends = (SearchFilter,)
+    search_fields = ('user__username', 'following__username')
 
     def get_queryset(self):
-        user = get_object_or_404(User, pk=self.request.user.pk)
-        return user.following
+        user = get_object_or_404(User, id=self.request.user.id)
+        return Follow.objects.filter(user=user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
